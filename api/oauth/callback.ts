@@ -3,32 +3,25 @@ import { COOKIE_NAME, decodeOAuthState, OAUTH_STATE_COOKIE } from "../../shared/
 import * as db from "../../server/db";
 import { sdk } from "../../server/_core/sdk";
 
-export default async function callback(req: any, res: any) {
-  const code = typeof req.query?.code === "string" ? req.query.code : undefined;
-  const state = typeof req.query?.state === "string" ? req.query.state : undefined;
+export default async function callback(request: Request) {
+  const requestUrl = new URL(request.url);
+  const code = requestUrl.searchParams.get("code");
+  const state = requestUrl.searchParams.get("state");
   if (!code || !state) {
-    res.statusCode = 400;
-    res.setHeader("Content-Type", "application/json");
-    res.end(JSON.stringify({ error: "code and state are required" }));
-    return;
+    return Response.json({ error: "code and state are required" }, { status: 400 });
   }
 
   const { nonce, redirectUri } = decodeOAuthState(state);
-  const cookies = parseCookieHeader(String(req.headers?.cookie ?? ""));
+  const cookies = parseCookieHeader(request.headers.get("cookie") ?? "");
   if (!nonce || nonce !== cookies[OAUTH_STATE_COOKIE]) {
-    res.statusCode = 403;
-    res.setHeader("Content-Type", "application/json");
-    res.end(JSON.stringify({ error: "invalid oauth state" }));
-    return;
+    return Response.json({ error: "invalid oauth state" }, { status: 403 });
   }
 
   try {
     const tokenResponse = await sdk.exchangeCodeForToken(code, state);
     const userInfo = await sdk.getUserInfo(tokenResponse.accessToken);
     if (!userInfo.openId) {
-      res.statusCode = 400;
-      res.end(JSON.stringify({ error: "openId missing from user info" }));
-      return;
+      return Response.json({ error: "openId missing from user info" }, { status: 400 });
     }
 
     await db.upsertUser({
@@ -44,17 +37,12 @@ export default async function callback(req: any, res: any) {
       expiresInMs: 365 * 24 * 60 * 60 * 1000,
     });
 
-    res.statusCode = 302;
-    res.setHeader("Set-Cookie", [
-      `${OAUTH_STATE_COOKIE}=; Path=/; Max-Age=0; SameSite=None; Secure`,
-      `${COOKIE_NAME}=${sessionToken}; Path=/; Max-Age=31536000; HttpOnly; SameSite=None; Secure`,
-    ]);
-    res.setHeader("Location", redirectUri || "/");
-    res.end();
+    const headers = new Headers({ Location: redirectUri || "/" });
+    headers.append("Set-Cookie", `${OAUTH_STATE_COOKIE}=; Path=/; Max-Age=0; SameSite=None; Secure`);
+    headers.append("Set-Cookie", `${COOKIE_NAME}=${sessionToken}; Path=/; Max-Age=31536000; HttpOnly; SameSite=None; Secure`);
+    return new Response(null, { status: 302, headers });
   } catch (error) {
     console.error("[OAuth] Callback failed", error);
-    res.statusCode = 500;
-    res.setHeader("Content-Type", "application/json");
-    res.end(JSON.stringify({ error: "OAuth callback failed" }));
+    return Response.json({ error: "OAuth callback failed" }, { status: 500 });
   }
 }

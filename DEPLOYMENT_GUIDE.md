@@ -1,18 +1,18 @@
 # Paramount AI Deployment Guide
 
-**Repository:** `YuhBee1/Paramount-AI`  
-**Primary branch:** `main`  
-**Runtime:** Node.js 22, pnpm, Express, React/Vite, tRPC, Drizzle ORM, MySQL-compatible database  
-**Container entrypoint:** `pnpm start`  
-**Container port:** `3000`
+**Repository:** `YuhBee1/Paramount-AI`
+**Primary branch:** `main`
+**Runtime:** Node.js 22 Vercel Function, pnpm, Express, React/Vite, tRPC, Drizzle ORM, MySQL-compatible database
+**Frontend output:** `dist/public`
+**API entrypoint:** `api/[...path].ts`
 
-This guide explains how to deploy Paramount AI from GitHub to Vessel, configure every required key and setting, apply database migrations safely, rotate credentials, verify a release, and recover from a failed deployment. It is written for a clean production setup. Do not copy real secrets into GitHub, this repository, Dockerfiles, issue comments, or chat messages.
+This guide explains how to deploy Paramount AI from GitHub to Vercel, configure every required key and setting, apply database migrations safely, rotate credentials, verify a release, and recover from a failed deployment. It is written for a clean production setup. Do not copy real secrets into GitHub, this repository, Vercel configuration, issue comments, or chat messages.
 
 > **Important scope note:** The current release is a production-oriented platform foundation. It includes authentication, projects, file metadata and storage integration, conversations, managed AI gateway calls, image generation, credits, jobs, API keys, dataset consent controls, and administrative registries. Audio/video adapters, isolated code-agent workers, durable distributed queues, payment reconciliation, MFA, and full retrieval indexing remain documented future work. Do not advertise those components as enabled until their provider adapters and operational controls have been implemented.
 
 ## 1. Deployment architecture
 
-Vessel should build the repository with the included multi-stage `Dockerfile`. The build stage installs all dependencies, runs TypeScript validation, and creates the Vite and server bundles. The runtime stage installs production dependencies, copies only `dist`, sets `NODE_ENV=production`, exposes port `3000`, and starts `dist/index.js` through `pnpm start`.
+Vercel should use the committed `vercel.json`. Its build command is `pnpm build`, its static output directory is `dist/public`, and its Node.js Function entrypoint is `api/[...path].ts`. That entrypoint mounts the existing Express middleware for OAuth, storage proxying, the versioned public API, and tRPC. The `server/_core/index.ts` process remains useful for local development and non-Vercel deployments; it is not the Vercel production entrypoint.
 
 The web process is stateless apart from its database and external storage integrations. User records, projects, conversations, jobs, credits, API-key metadata, datasets, and audit-oriented metadata belong in the MySQL-compatible database. File bytes must remain in object storage; the database stores metadata and storage references. Do not use the local container filesystem as durable storage.
 
@@ -21,9 +21,9 @@ The recommended production boundary is:
 ```text
 User browser
     |
-TLS / custom domain / Vessel ingress
+TLS / custom domain / Vercel edge
     |
-Paramount AI Node container :3000
+Vercel static assets + Node.js Function
     |--- Manus OAuth
     |--- MySQL/TiDB database
     |--- Managed Forge AI and image APIs
@@ -31,15 +31,15 @@ Paramount AI Node container :3000
     `--- Optional external provider adapters added in later phases
 ```
 
-Long-running model, media, or code-execution work must not be implemented as an in-process background worker in this web container. When those workloads are enabled, use a durable queue and isolated worker service with explicit timeouts, cancellation, limits, and audit records.
+Long-running model, media, or code-execution work must not be implemented as an in-process background worker in a Vercel Function. Function invocations have platform duration and resource limits. When those workloads are enabled, use a durable queue and isolated worker service with explicit timeouts, cancellation, limits, and audit records.
 
 ## 2. Prerequisites
 
 Before deploying, confirm that you have the following:
 
-1. Access to the GitHub repository `YuhBee1/Paramount-AI` and permission to configure Vessel from it.
-2. A Vessel application or service with a production environment.
-3. A MySQL-compatible database reachable from the Vessel runtime. The database account must be able to create and alter the P/AI tables during controlled migrations.
+1. Access to the GitHub repository `YuhBee1/Paramount-AI` and permission to import it into Vercel.
+2. A Vercel project with Production, Preview, and Development environments configured as appropriate.
+3. A MySQL-compatible database reachable from Vercel Functions. The database account must be able to create and alter the P/AI tables during controlled migrations.
 4. A configured Manus OAuth application whose callback URL matches the production domain and OAuth configuration.
 5. A valid managed Forge API URL and server-side Forge API key for AI and image operations.
 6. A production session secret that is long, random, and unique to this deployment.
@@ -47,7 +47,7 @@ Before deploying, confirm that you have the following:
 8. A DNS name, TLS certificate or managed TLS setting, and a rollback owner.
 9. A separate staging environment if production data cannot tolerate migration experiments.
 
-Use a password manager or Vessel's secret manager for all credentials. Keep a written inventory of secret names, owners, creation dates, rotation dates, and the services that consume them. Store secret values only in that manager.
+Use a password manager and Vercel Project Settings → Environment Variables for all credentials. Keep a written inventory of secret names, owners, creation dates, rotation dates, and the services that consume them. Store secret values only in those managers. Vercel applies environment-variable changes to new deployments, not deployments that already exist.
 
 ## 3. GitHub source and branch policy
 
@@ -65,31 +65,33 @@ pnpm test
 pnpm build
 ```
 
-The repository intentionally excludes `node_modules`, `dist`, local logs, screenshots, internal sandbox metadata, and environment files. Vessel must install and build from source. Do not upload the previously generated ZIP as the deployed application artifact.
+The repository intentionally excludes `node_modules`, `dist`, local logs, screenshots, internal sandbox metadata, and environment files. Vercel must install and build from source. Do not upload the previously generated ZIP as the deployed application artifact.
 
-## 4. Vessel application configuration
+## 4. Vercel project configuration
 
-Create or open the Vessel application connected to `YuhBee1/Paramount-AI` and configure the following values:
+Import or open the Vercel project connected to `YuhBee1/Paramount-AI` and configure the following values. The committed `vercel.json` supplies the build, output, rewrite, and Function settings; confirm that the dashboard does not override them unexpectedly.
 
 | Setting | Recommended value | Reason |
 |---|---|---|
 | Source repository | `YuhBee1/Paramount-AI` | Deployment source |
 | Branch | `main` | Protected release branch |
-| Build method | Included `Dockerfile` | Reproducible Node 22 build |
-| Container port | `3000` | The application listens on this port |
-| Start command | Use the Dockerfile command | `pnpm start` is already defined |
-| Node version | `22` | Matches both Docker stages |
+| Framework preset | Other / no framework override | This is a Vite + Express/tRPC application |
+| Install command | `pnpm install --frozen-lockfile` | Reproducible dependencies |
+| Build command | `pnpm build` | Produces Vite assets and the local server bundle |
+| Output directory | `dist/public` | Static browser assets emitted by Vite |
+| Function entrypoint | `api/[...path].ts` | Express adapter for API, OAuth, storage, and tRPC |
+| Node version | `22` | Matches the Vercel Function runtime |
 | Environment | `production` | Required for the bundled server |
-| Health check | HTTP request to `/` | Confirms the web bundle is serving |
-| Readiness timeout | At least 30 seconds | Allows for cold start and dependency initialization |
-| TLS | Enabled at ingress | Protects sessions and API keys |
-| Autoscaling | Start conservatively | AI calls and database connection behavior should be observed before increasing concurrency |
+| Smoke test | HTTP request to `/` and authenticated API flows | Confirms static and Function paths |
+| Function duration | `60` seconds in `vercel.json` | Bounds provider requests; keep long work out of the Function |
+| TLS/custom domain | Configure in Vercel Domains | Protects sessions and API keys |
+| Production branch | `main` | Pushes to `main` deploy Production by default |
 
-Do not add a second process manager inside the container. Do not run `pnpm dev` in production. Do not expose the database, Forge API key, or storage credentials to browser-side environment variables.
+Do not configure a Docker start command for the Vercel project. Do not run `pnpm dev` in Vercel Production. Do not expose the database, Forge API key, or storage credentials to browser-side environment variables. The `Dockerfile` is retained for non-Vercel container deployments and local portability; Vercel should use `vercel.json` and the `api/` Function entrypoint.
 
 ## 5. Environment and secret configuration
 
-Set `NODE_ENV=production` through the runtime configuration. The Dockerfile already sets it in the runtime image. Configure the remaining values in Vessel's environment/secret settings.
+Set `NODE_ENV=production` in Vercel Production if it is not already supplied by the platform. Configure the remaining values in Vercel Project Settings → Environment Variables. Assign each value deliberately to Production, Preview, or Development. Do not assume a Production value is available to Preview.
 
 The following values are read directly by the current source:
 
@@ -117,14 +119,14 @@ The repository's older architecture notes mention future categories such as `QUE
 
 For each secret, create a production-specific value in the secret manager. Record the secret name and owner, but never record the value in the deployment ticket. Attach a rotation date. Confirm that the value is available to the runtime, not merely to the build stage.
 
-After saving secrets, redeploy rather than relying on a running process to reload them. Confirm that the container starts without printing secret values. Inspect logs for missing-variable errors, but redact request headers, database URLs, and provider responses before sharing logs.
+After saving secrets, create a new Vercel deployment rather than relying on an existing deployment to reload them. Confirm that the Function responds without printing secret values. Inspect Vercel Function logs for missing-variable errors, but redact request headers, database URLs, and provider responses before sharing logs.
 
 ### 5.2 Key rotation procedure
 
 Rotate one class of key at a time and keep the change reversible:
 
 1. Create a replacement secret in the provider or OAuth system.
-2. Add the replacement to Vessel under the same runtime variable name, or add a versioned variable if dual-key overlap is required.
+2. Add the replacement to Vercel under the same runtime variable name, or add a versioned variable if dual-key overlap is required.
 3. Deploy a new revision.
 4. Verify login, database access, AI gateway calls, image generation, and any affected webhook or storage action.
 5. Revoke the old provider key only after the new revision is confirmed healthy.
@@ -153,7 +155,7 @@ Apply migrations using the approved database release process:
 pnpm drizzle-kit migrate
 ```
 
-If your Vessel setup runs migrations as a release task, execute the migration task before routing traffic to the new application revision. If Vessel does not provide a separate release task, use a one-off administrative job with the same image and environment variables. Do not put migration execution in every container startup when multiple replicas may start concurrently.
+Run migrations from a controlled operator workstation or a dedicated CI/release job with the production `DATABASE_URL`; do not run migrations inside the Vercel Function handler. If you use Vercel’s build or deployment automation for migrations, ensure the command is an explicit, single-owner release step and cannot run concurrently for multiple deployments. Never put migration execution in a request path or in the Function’s module initialization.
 
 The current repository contains additive Drizzle migrations for the P/AI tables. Before a destructive schema change, take a backup, test the migration against a restored copy, define the rollback or forward-fix procedure, and deploy the application code that understands both sides of the transition where necessary.
 
@@ -192,7 +194,7 @@ Use this procedure for every production release:
 6. Run `pnpm build`.
 7. Generate migrations and review any SQL changes.
 8. Back up the database when schema or data behavior changes.
-9. Deploy the GitHub commit through Vessel.
+9. Deploy the GitHub commit through Vercel.
 10. Wait for the new revision to become ready.
 11. Run smoke tests through the public domain.
 12. Monitor logs, error rates, database connections, response latency, and provider failures.
@@ -242,7 +244,7 @@ Treat the current in-process rate limiter as a single-instance safeguard, not a 
 
 ## 12. Security controls before public launch
 
-Confirm that all production traffic uses HTTPS and that the ingress does not expose the Node port directly. Use least-privilege database and storage credentials. Keep server-only values out of `VITE_` variables. Rotate the initial deployment credentials after a successful smoke test if they were used during setup.
+Confirm that all production traffic uses HTTPS and that the Vercel domain has the intended TLS configuration. Use least-privilege database and storage credentials. Keep server-only values out of `VITE_` variables. Rotate the initial deployment credentials after a successful smoke test if they were used during setup.
 
 Review project ownership checks for every read and write procedure. Confirm that API-key lookup uses hashes rather than plaintext secrets. Confirm that administrative procedures are role-gated. Set upload limits and MIME policies. Enable database backups and test a restore. Set provider spending limits where available. Add alerting for authentication failures, provider errors, queue saturation, database connection exhaustion, and unusual API-key usage.
 
@@ -250,7 +252,7 @@ Do not enable autonomous code execution merely because a UI route exists. An age
 
 ## 13. Rollback and recovery
 
-A rollback is a deployment change, not a substitute for a database restore. If the application revision fails but the schema is backward-compatible, redeploy the previous known-good GitHub commit through Vessel. Do not force-push `main`.
+A rollback is a deployment change, not a substitute for a database restore. If the application revision fails but the schema is backward-compatible, redeploy the previous known-good GitHub commit through Vercel. Do not force-push `main`.
 
 If a migration has already changed the database, prefer a forward fix when possible. Restore only after confirming the recovery point, data-loss window, and ownership of the recovery decision. Restore into a separate environment first, verify application compatibility, and then perform the production cutover using the approved incident process.
 
@@ -258,13 +260,13 @@ For a provider outage, disable the affected feature or provider route rather tha
 
 ## 14. Troubleshooting
 
-**The container exits during startup.** Check `NODE_ENV`, `DATABASE_URL`, `JWT_SECRET`, OAuth values, and Forge values. Confirm the Vessel runtime, not only the build stage, has the variables. Inspect the first error without sharing the full environment.
+**The Function returns an initialization or 500 error.** Check `NODE_ENV`, `DATABASE_URL`, `JWT_SECRET`, OAuth values, and Forge values in the Vercel environment selected for that deployment. Confirm the values are available to Function execution, not only to the build. Inspect the first Function error without sharing the full environment.
 
-**The site builds but the browser shows a blank page.** Inspect the browser console and the generated asset paths. Confirm that Vessel routes all application traffic to the container and that the static bundle was produced by `pnpm build`.
+**The site builds but the browser shows a blank page.** Inspect the browser console and generated asset paths. Confirm that `dist/public` is the Vercel output directory, that the SPA rewrite in `vercel.json` is present, and that the deployment is using the expected commit.
 
 **OAuth redirects to the wrong place.** Check the production application ID, OAuth server URL, portal URL, callback registration, HTTPS domain, and cookie domain behavior.
 
-**Chat or image generation fails.** Confirm the server-side Forge URL and key, provider availability, model identifier, request size, and Vessel egress policy. Do not move the privileged Forge key into a `VITE_` variable as a workaround.
+**Chat or image generation fails.** Confirm the server-side Forge URL and key, provider availability, model identifier, request size, Vercel Function duration, and provider network access. Do not move the privileged Forge key into a `VITE_` variable as a workaround.
 
 **A migration reports an existing table or column.** Stop the release. Compare the database migration history with `drizzle/meta` and the SQL files in `drizzle`. Do not delete migration history or manually drop tables without a backup and an approved recovery plan.
 
@@ -278,7 +280,7 @@ For a provider outage, disable the affected feature or provider route rather tha
 
 Keep the following records outside the source repository:
 
-- Production domain, Vessel application identifier, and deployment owner.
+- Production domain, Vercel project identifier, and deployment owner.
 - Database provider, database name, backup schedule, and last restore test.
 - Secret inventory with names, owners, creation dates, and next rotation dates.
 - OAuth application owner and callback URLs.
@@ -293,10 +295,10 @@ Do not put secret values, database dumps, customer files, or session data in the
 
 Before declaring the deployment complete, verify every item below:
 
-- [ ] The Vessel service is connected to `YuhBee1/Paramount-AI` and the intended `main` commit.
-- [ ] The build uses the repository `Dockerfile` and Node 22.
-- [ ] Port `3000` is routed through HTTPS ingress.
-- [ ] Production secrets are configured only in Vessel's secret manager.
+- [ ] The Vercel project is connected to `YuhBee1/Paramount-AI` and the intended `main` commit.
+- [ ] The project uses `vercel.json`, `pnpm install --frozen-lockfile`, `pnpm build`, and output directory `dist/public`.
+- [ ] The `api/[...path].ts` Node.js Function is deployed and responds to API requests.
+- [ ] Production secrets are configured only in Vercel Project Settings → Environment Variables.
 - [ ] `DATABASE_URL` points to the intended production database.
 - [ ] Backups are enabled and a restore test has been scheduled or completed.
 - [ ] OAuth callback and login portal settings use the production domain.
@@ -311,12 +313,12 @@ Before declaring the deployment complete, verify every item below:
 
 ## References
 
-[1]: https://docs.github.com/en/repositories/creating-and-managing-repositories "GitHub repository management documentation"
+[1]: https://vercel.com/docs/git/vercel-for-github "Deploying GitHub Projects with Vercel"
 
-[2]: https://docs.docker.com/build/building/multi-stage/ "Docker multi-stage build documentation"
+[2]: https://vercel.com/docs/project-configuration/vercel-json "Vercel project configuration"
 
-[3]: https://orm.drizzle.team/docs/kit-overview "Drizzle Kit documentation"
+[3]: https://vercel.com/docs/environment-variables "Vercel environment variables"
 
-[4]: https://pnpm.io/cli/install "pnpm install documentation"
+[4]: https://orm.drizzle.team/docs/kit-overview "Drizzle Kit documentation"
 
-[5]: https://nodejs.org/en/about/previous-releases "Node.js release documentation"
+[5]: https://pnpm.io/cli/install "pnpm install documentation"

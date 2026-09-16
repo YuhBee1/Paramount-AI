@@ -1,5 +1,6 @@
-import { COOKIE_NAME, ONE_YEAR_MS, OAUTH_STATE_COOKIE, decodeOAuthState } from "@shared/const";
+import { COOKIE_NAME, ONE_YEAR_MS, OAUTH_STATE_COOKIE, decodeOAuthState, encodeOAuthState } from "@shared/const";
 import { parse as parseCookieHeader } from "cookie";
+import { randomUUID } from "node:crypto";
 import type { Express, Request, Response } from "express";
 import * as db from "../db";
 import { getSessionCookieOptions } from "./cookies";
@@ -11,6 +12,35 @@ function getQueryParam(req: Request, key: string): string | undefined {
 }
 
 export function registerOAuthRoutes(app: Express) {
+  app.get("/api/oauth/login", (req: Request, res: Response) => {
+    const oauthPortalUrl = process.env.VITE_OAUTH_PORTAL_URL;
+    const appId = process.env.VITE_APP_ID;
+    if (!oauthPortalUrl || !appId) {
+      res.status(500).json({ error: "OAuth configuration is missing" });
+      return;
+    }
+
+    const nonce = randomUUID();
+    const forwardedProtocol = req.get("x-forwarded-proto")?.split(",")[0]?.trim();
+    const protocol = forwardedProtocol || req.protocol;
+    const redirectUri = `${protocol}://${req.get("host")}/api/oauth/callback`;
+    const state = encodeOAuthState({ redirectUri, nonce });
+    res.cookie(OAUTH_STATE_COOKIE, nonce, {
+      httpOnly: false,
+      maxAge: 10 * 60 * 1000,
+      path: "/",
+      sameSite: "none",
+      secure: true,
+    });
+
+    const loginUrl = new URL(`${oauthPortalUrl}/app-auth`);
+    loginUrl.searchParams.set("appId", appId);
+    loginUrl.searchParams.set("redirectUri", redirectUri);
+    loginUrl.searchParams.set("state", state);
+    loginUrl.searchParams.set("type", "signIn");
+    res.redirect(302, loginUrl.toString());
+  });
+
   app.get("/api/oauth/callback", async (req: Request, res: Response) => {
     const code = getQueryParam(req, "code");
     const state = getQueryParam(req, "state");

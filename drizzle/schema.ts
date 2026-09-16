@@ -135,9 +135,70 @@ export const auditLogs = mysqlTable("audit_logs", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
+export const conversations = mysqlTable("conversations", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  projectId: int("projectId"),
+  title: varchar("title", { length: 200 }).notNull(),
+  model: varchar("model", { length: 160 }),
+  archived: boolean("archived").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const messages = mysqlTable("messages", {
+  id: int("id").autoincrement().primaryKey(),
+  conversationId: int("conversationId").notNull(),
+  role: mysqlEnum("role", ["system", "user", "assistant", "tool"]).notNull(),
+  content: text("content").notNull(),
+  provider: varchar("provider", { length: 120 }),
+  model: varchar("model", { length: 160 }),
+  inputTokens: int("inputTokens"),
+  outputTokens: int("outputTokens"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const apiKeys = mysqlTable("api_keys", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  label: varchar("label", { length: 120 }).notNull(),
+  keyPrefix: varchar("keyPrefix", { length: 24 }).notNull(),
+  keyHash: varchar("keyHash", { length: 128 }).notNull().unique(),
+  scopes: json("scopes").notNull(),
+  expiresAt: timestamp("expiresAt"),
+  lastUsedAt: timestamp("lastUsedAt"),
+  revokedAt: timestamp("revokedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const datasets = mysqlTable("datasets", {
+  id: int("id").autoincrement().primaryKey(),
+  ownerId: int("ownerId").notNull(),
+  name: varchar("name", { length: 160 }).notNull(),
+  purpose: varchar("purpose", { length: 80 }).notNull(),
+  consentStatus: mysqlEnum("consentStatus", ["pending", "approved", "rejected", "withdrawn"]).default("pending").notNull(),
+  checksum: varchar("checksum", { length: 128 }),
+  recordCount: int("recordCount").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const featureFlags = mysqlTable("feature_flags", {
+  id: int("id").autoincrement().primaryKey(),
+  flag: varchar("flag", { length: 120 }).notNull().unique(),
+  enabled: boolean("enabled").default(false).notNull(),
+  scope: varchar("scope", { length: 40 }).default("global").notNull(),
+  metadata: json("metadata"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type Project = typeof projects.$inferSelect;
 export type InsertProject = typeof projects.$inferInsert;
 export type Job = typeof jobs.$inferSelect;
 export type Model = typeof models.$inferSelect;
+export type Conversation = typeof conversations.$inferSelect;
+export type Message = typeof messages.$inferSelect;
+export type ApiKey = typeof apiKeys.$inferSelect;
+export type Dataset = typeof datasets.$inferSelect;

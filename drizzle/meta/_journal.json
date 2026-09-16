@@ -15,6 +15,13 @@
       "when": 1789568069413,
       "tag": "0001_parched_jean_grey",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1789570497732,
+      "tag": "0002_freezing_jimmy_woo",
+      "breakpoints": true
     }
   ]
 }

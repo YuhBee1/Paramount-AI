@@ -1,0 +1,9 @@
+node_modules
+dist
+.git
+.manus-logs
+screenshots
+*.zip
+.env
+.env.*
+!.env.example

@@ -1,317 +1,360 @@
-# Paramount AI Deployment Guide
+# Paramount AI: Easy Deployment Guide for Vercel
 
-**Repository:** `YuhBee1/Paramount-AI`
-**Primary branch:** `main`
-**Runtime:** Node.js 22 Vercel Function, pnpm, Express, React/Vite, tRPC, Drizzle ORM, MySQL-compatible database
-**Frontend output:** `dist/public`
-**API entrypoint:** `api/[...path].ts`
+**What this guide does:** It walks you through putting Paramount AI online using GitHub and Vercel. You do not need to be a software developer to follow it. Every unfamiliar word is explained when it first appears.
 
-This guide explains how to deploy Paramount AI from GitHub to Vercel, configure every required key and setting, apply database migrations safely, rotate credentials, verify a release, and recover from a failed deployment. It is written for a clean production setup. Do not copy real secrets into GitHub, this repository, Vercel configuration, issue comments, or chat messages.
+**Repository:** [YuhBee1/Paramount-AI](https://github.com/YuhBee1/Paramount-AI)
+**Website host:** Vercel
+**Database:** A MySQL-compatible database
+**Important:** Never paste real passwords or private keys into GitHub, this guide, screenshots, or support messages.
 
-> **Important scope note:** The current release is a production-oriented platform foundation. It includes authentication, projects, file metadata and storage integration, conversations, managed AI gateway calls, image generation, credits, jobs, API keys, dataset consent controls, and administrative registries. Audio/video adapters, isolated code-agent workers, durable distributed queues, payment reconciliation, MFA, and full retrieval indexing remain documented future work. Do not advertise those components as enabled until their provider adapters and operational controls have been implemented.
+## The short version
 
-## 1. Deployment architecture
+There are four services involved:
 
-Vercel should use the committed `vercel.json`. Its build command is `pnpm build`, its static output directory is `dist/public`, and its Node.js Function entrypoint is `api/[...path].ts`. That entrypoint mounts the existing Express middleware for OAuth, storage proxying, the versioned public API, and tRPC. The `server/_core/index.ts` process remains useful for local development and non-Vercel deployments; it is not the Vercel production entrypoint.
+1. **GitHub** stores the Paramount AI source code.
+2. **Vercel** turns that source code into a live website and automatically updates it when you push changes.
+3. **The database** stores users, projects, conversations, jobs, credits, and settings.
+4. **Manus services and storage** provide login, AI responses, image generation, and file storage.
 
-The web process is stateless apart from its database and external storage integrations. User records, projects, conversations, jobs, credits, API-key metadata, datasets, and audit-oriented metadata belong in the MySQL-compatible database. File bytes must remain in object storage; the database stores metadata and storage references. Do not use the local container filesystem as durable storage.
+You will connect these services by entering settings called **environment variables**. An environment variable is simply a named setting, such as `DATABASE_URL`, whose value is kept outside the code. Passwords and API keys belong there.
 
-The recommended production boundary is:
+## Before you begin
+
+Have these things ready:
+
+- A GitHub account that can open [YuhBee1/Paramount-AI](https://github.com/YuhBee1/Paramount-AI).
+- A Vercel account.
+- A production database with a MySQL-compatible connection address.
+- Your Manus OAuth login details.
+- Your Manus Forge API address and server-side API key.
+- A production domain name, if you want a custom address instead of a Vercel address.
+- A password manager. This is where you should keep passwords and API keys.
+
+If you do not have one of these items, stop at that step. Do not invent a value or use a random example from the internet.
+
+## Part 1: Connect GitHub to Vercel
+
+### Step 1: Open Vercel
+
+Go to [vercel.com](https://vercel.com) and sign in. Choose **Add New… → Project**.
+
+### Step 2: Choose the GitHub repository
+
+Choose **Import Git Repository**, connect GitHub if Vercel asks for permission, and select:
 
 ```text
-User browser
-    |
-TLS / custom domain / Vercel edge
-    |
-Vercel static assets + Node.js Function
-    |--- Manus OAuth
-    |--- MySQL/TiDB database
-    |--- Managed Forge AI and image APIs
-    |--- S3-compatible object storage through the project storage helper
-    `--- Optional external provider adapters added in later phases
+YuhBee1/Paramount-AI
 ```
 
-Long-running model, media, or code-execution work must not be implemented as an in-process background worker in a Vercel Function. Function invocations have platform duration and resource limits. When those workloads are enabled, use a durable queue and isolated worker service with explicit timeouts, cancellation, limits, and audit records.
+If you cannot see the repository, Vercel's GitHub connection does not have access to it. Reconnect GitHub from Vercel's account or team settings, then try again.
 
-## 2. Prerequisites
+### Step 3: Choose the project settings
 
-Before deploying, confirm that you have the following:
+Use these values when Vercel shows the setup screen:
 
-1. Access to the GitHub repository `YuhBee1/Paramount-AI` and permission to import it into Vercel.
-2. A Vercel project with Production, Preview, and Development environments configured as appropriate.
-3. A MySQL-compatible database reachable from Vercel Functions. The database account must be able to create and alter the P/AI tables during controlled migrations.
-4. A configured Manus OAuth application whose callback URL matches the production domain and OAuth configuration.
-5. A valid managed Forge API URL and server-side Forge API key for AI and image operations.
-6. A production session secret that is long, random, and unique to this deployment.
-7. A storage configuration supported by the project runtime for uploaded and generated assets.
-8. A DNS name, TLS certificate or managed TLS setting, and a rollback owner.
-9. A separate staging environment if production data cannot tolerate migration experiments.
+| Vercel field | Value |
+|---|---|
+| Framework Preset | Other |
+| Root Directory | `.` (the repository root) |
+| Install Command | `pnpm install --frozen-lockfile` |
+| Build Command | `pnpm build` |
+| Output Directory | `dist/public` |
+| Production Branch | `main` |
 
-Use a password manager and Vercel Project Settings → Environment Variables for all credentials. Keep a written inventory of secret names, owners, creation dates, rotation dates, and the services that consume them. Store secret values only in those managers. Vercel applies environment-variable changes to new deployments, not deployments that already exist.
+The repository already contains `vercel.json`, so Vercel may fill in some of these values automatically. If a dashboard value conflicts with the file, use the values above.
 
-## 3. GitHub source and branch policy
+Do not add a custom Start Command. Vercel serves the website files and runs the API through the included Function file. A **Function** is a small server program that Vercel starts when someone calls the API.
 
-The deployment source is the `main` branch of `YuhBee1/Paramount-AI`. Protect `main` before production use. Require pull requests, require successful checks, and restrict force-push and branch deletion permissions. Do not deploy from a developer workstation with uncommitted changes.
+Do not click Deploy yet if you have not added the environment variables below. The first deployment will fail if the application cannot find its database or login settings.
 
-A release should follow this sequence:
+## Part 2: Add the settings and keys
 
-```sh
-git fetch origin
-git checkout main
-git pull --ff-only origin main
+In the Vercel project, open **Settings → Environment Variables**. Add each setting one at a time. For the first working deployment, select **Production** for each required value.
+
+A setting has three parts:
+
+- **Name:** the exact name in the first column below.
+- **Value:** the value supplied by your service provider.
+- **Environment:** choose Production. Add Preview later when you create a test environment.
+
+### Required settings
+
+| Name | What it means | Where its value comes from |
+|---|---|---|
+| `DATABASE_URL` | The address and password for the production database | Your database provider |
+| `JWT_SECRET` | The private key used to keep people signed in | Generate a long random value and store it in your password manager |
+| `VITE_APP_ID` | Your Manus login application ID | Manus OAuth application settings |
+| `OAUTH_SERVER_URL` | The address of the Manus login service | Manus OAuth settings |
+| `VITE_OAUTH_PORTAL_URL` | The page where users begin signing in | Manus OAuth settings |
+| `OWNER_OPEN_ID` | Your Manus owner identifier | Your Manus account or project configuration |
+| `BUILT_IN_FORGE_API_URL` | The address of the Manus AI service | Manus Forge configuration |
+| `BUILT_IN_FORGE_API_KEY` | The private server key for AI and image requests | Manus Forge configuration |
+
+### Recommended settings
+
+| Name | What it means |
+|---|---|
+| `OWNER_NAME` | The name displayed for the owner account |
+| `VITE_APP_TITLE` | The title shown in the browser tab |
+| `VITE_APP_LOGO` | The logo setting, if you have one configured |
+| `VITE_ANALYTICS_ENDPOINT` | Analytics service address, if analytics is approved |
+| `VITE_ANALYTICS_WEBSITE_ID` | Analytics website ID, if analytics is approved |
+
+### Settings you should treat carefully
+
+Names beginning with `VITE_` can be included in the browser website bundle. That means a visitor may be able to see them. Do not put a powerful private key in a `VITE_` setting.
+
+`BUILT_IN_FORGE_API_KEY`, `DATABASE_URL`, and `JWT_SECRET` are private. They must stay server-side. Never copy them into `VITE_FRONTEND_FORGE_API_KEY` or any other browser-facing setting.
+
+`VITE_FRONTEND_FORGE_API_URL` and `VITE_FRONTEND_FORGE_API_KEY` are optional. Leave them empty unless a specific browser feature requires them. Prefer server-side requests whenever possible.
+
+### How to create `JWT_SECRET`
+
+If you do not already have a secure secret, use your password manager's password generator. Choose a long random value, preferably at least 32 characters. Do not use a person's name, a sentence, or a password that is used anywhere else.
+
+Changing `JWT_SECRET` later signs everyone out. That is normal, but plan it as a maintenance action.
+
+## Part 3: Prepare the database
+
+The database is where the application remembers things. Without it, users, projects, conversations, and settings disappear or cannot be created.
+
+### Step 1: Create a production database
+
+Create a MySQL-compatible database with your chosen provider. Create a separate database for testing if possible. Do not use a personal laptop database for the live website.
+
+Ask the database provider for a connection string. It normally looks similar to this, but your provider will give you the real value:
+
+```text
+mysql://username:password@hostname:3306/database_name
+```
+
+The example above is only a shape. Do not enter it as-is.
+
+### Step 2: Back it up
+
+Turn on automatic backups. Before the first live migration, confirm that the provider can restore a backup into a separate test database. A backup is only useful if you know how to restore it.
+
+### Step 3: Apply the Paramount AI tables
+
+A **migration** is a carefully recorded database change. The repository contains migrations that create the Paramount AI tables.
+
+For a first setup, an administrator or developer should run these commands from a copy of the repository:
+
+```bash
 pnpm install --frozen-lockfile
+pnpm drizzle-kit generate
+pnpm drizzle-kit migrate
+```
+
+Run them with the production `DATABASE_URL` available to that terminal. Never send the database password in a chat message. If the migration reports a problem, stop and ask for help before deleting or changing tables.
+
+Do not run migrations from a website request. Do not place `pnpm drizzle-kit migrate` inside the Vercel Function. It should run once as a controlled release task.
+
+## Part 4: Configure login
+
+In the Manus OAuth settings, add the production callback address required by the project. Use your final HTTPS domain. Do not use an old preview URL for the permanent login setup.
+
+Before launching, confirm:
+
+- The application ID matches `VITE_APP_ID`.
+- The OAuth server address matches `OAUTH_SERVER_URL`.
+- The login portal matches `VITE_OAUTH_PORTAL_URL`.
+- The owner identifier matches `OWNER_OPEN_ID`.
+- The callback address uses HTTPS.
+- The callback address points to the Paramount AI production domain.
+
+If login sends you to the wrong site, check these values first. Do not change cookies or code until the OAuth values have been checked.
+
+## Part 5: Deploy the first version
+
+After the required settings are saved, go back to **Deployments** in Vercel and choose **Redeploy**, or push a new commit to the `main` branch.
+
+Vercel will:
+
+1. Download the code from GitHub.
+2. Install the packages.
+3. Build the website.
+4. Publish the browser files from `dist/public`.
+5. Make the API Function available under `/api`.
+
+Wait for the deployment to show **Ready**. Open the deployment URL. You should see the Paramount AI landing page.
+
+If Vercel reports a failed build, open the build log and look at the first error. Later errors are often consequences of the first one.
+
+## Part 6: Add your domain
+
+If you have a custom domain, open **Settings → Domains** in Vercel and add it. Vercel will show the DNS records you need to add at your domain provider.
+
+Wait until Vercel confirms the domain is connected and HTTPS is active. Then update your Manus OAuth callback settings to use that final domain.
+
+Test the domain in a private browser window. Confirm that:
+
+- The address begins with `https://`.
+- The landing page loads.
+- Login starts from the correct domain.
+- Login returns to the correct domain.
+- Signing out works.
+
+## Part 7: Test the important features
+
+Use this checklist after the first successful deployment:
+
+- [ ] The home page opens.
+- [ ] A new user can sign in.
+- [ ] The owner can sign out and sign in again.
+- [ ] The owner can create a project.
+- [ ] A conversation can be started.
+- [ ] A short AI request works when the Forge key is active.
+- [ ] Image generation works when the image service is active.
+- [ ] A small file can be uploaded.
+- [ ] The file is still available after refreshing the page.
+- [ ] An API key can be created and revoked.
+- [ ] The usage page opens.
+- [ ] A dataset can be registered and its consent status changed.
+- [ ] A normal user cannot open administrator controls.
+- [ ] Database records remain after a new Vercel deployment.
+
+Test with a small file and a short AI prompt first. Do not begin with a large upload or an expensive request.
+
+## Part 8: Preview versus Production
+
+Vercel normally creates a **Preview** deployment for branches other than `main` and a **Production** deployment from `main`.
+
+Use different databases and AI keys for Preview and Production whenever possible. This prevents testing from changing live customer data or spending production credits.
+
+In Vercel's Environment Variables screen, select the correct environment when adding a value:
+
+- **Production:** the live website from `main`.
+- **Preview:** test deployments from other branches or pull requests.
+- **Development:** local development values.
+
+Do not put the Production database URL into Preview unless you deliberately accept that risk.
+
+## Part 9: Changing keys later
+
+Changing a key means replacing an old password or API key with a new one. Use this safe order:
+
+1. Create the new key at the service that issued the old key.
+2. Save the new value in Vercel under the same environment variable name.
+3. Redeploy the Vercel project. Old deployments keep their old environment values.
+4. Test login, database access, AI, image generation, storage, or whichever service uses the key.
+5. Revoke the old key only after the new deployment works.
+6. Write down the date of the change in your private operations record.
+
+### Special cases
+
+- Changing `BUILT_IN_FORGE_API_KEY` can stop AI and image requests until the new deployment is live.
+- Changing `DATABASE_URL` can make the website use a different set of data. Check it three times before saving.
+- Changing `JWT_SECRET` signs out all current users.
+- Changing OAuth values can prevent every user from logging in.
+- Changing a `VITE_` value requires a new build because it is included in the website files.
+
+## Part 10: Updating the website
+
+For a normal update:
+
+1. Make the change in a new GitHub branch.
+2. Open a pull request into `main`.
+3. Let Vercel create a Preview deployment.
+4. Test the Preview URL.
+5. Merge the pull request only after the Preview works.
+6. Vercel automatically deploys the new `main` commit to Production.
+
+Before merging a code change, the project should pass:
+
+```bash
 pnpm check
 pnpm test
 pnpm build
 ```
 
-The repository intentionally excludes `node_modules`, `dist`, local logs, screenshots, internal sandbox metadata, and environment files. Vercel must install and build from source. Do not upload the previously generated ZIP as the deployed application artifact.
+The current project also uses Drizzle migrations. If a change modifies the database, review the generated SQL, back up the database, apply the migration once, and then deploy the code that uses it.
 
-## 4. Vercel project configuration
+## Part 11: Going back after a bad update
 
-Import or open the Vercel project connected to `YuhBee1/Paramount-AI` and configure the following values. The committed `vercel.json` supplies the build, output, rewrite, and Function settings; confirm that the dashboard does not override them unexpectedly.
+Vercel keeps previous deployments. If the newest release is broken, open the previous working deployment and choose the Vercel option to promote or redeploy it to Production.
 
-| Setting | Recommended value | Reason |
-|---|---|---|
-| Source repository | `YuhBee1/Paramount-AI` | Deployment source |
-| Branch | `main` | Protected release branch |
-| Framework preset | Other / no framework override | This is a Vite + Express/tRPC application |
-| Install command | `pnpm install --frozen-lockfile` | Reproducible dependencies |
-| Build command | `pnpm build` | Produces Vite assets and the local server bundle |
-| Output directory | `dist/public` | Static browser assets emitted by Vite |
-| Function entrypoint | `api/[...path].ts` | Express adapter for API, OAuth, storage, and tRPC |
-| Node version | `22` | Matches the Vercel Function runtime |
-| Environment | `production` | Required for the bundled server |
-| Smoke test | HTTP request to `/` and authenticated API flows | Confirms static and Function paths |
-| Function duration | `60` seconds in `vercel.json` | Bounds provider requests; keep long work out of the Function |
-| TLS/custom domain | Configure in Vercel Domains | Protects sessions and API keys |
-| Production branch | `main` | Pushes to `main` deploy Production by default |
+This is safe for code problems when the database structure has not changed. If a migration has already changed the database, ask an administrator before restoring anything. A code rollback does not automatically undo a database change.
 
-Do not configure a Docker start command for the Vercel project. Do not run `pnpm dev` in Vercel Production. Do not expose the database, Forge API key, or storage credentials to browser-side environment variables. The `Dockerfile` is retained for non-Vercel container deployments and local portability; Vercel should use `vercel.json` and the `api/` Function entrypoint.
+Never force-push over `main` as a first response. Keep the history so the cause can be found.
 
-## 5. Environment and secret configuration
+## Part 12: Common problems
 
-Set `NODE_ENV=production` in Vercel Production if it is not already supplied by the platform. Configure the remaining values in Vercel Project Settings → Environment Variables. Assign each value deliberately to Production, Preview, or Development. Do not assume a Production value is available to Preview.
+### “I cannot see the GitHub repository in Vercel.”
 
-The following values are read directly by the current source:
+Reconnect GitHub in Vercel and grant access to `YuhBee1/Paramount-AI`. For a personal GitHub repository, your Vercel account must be the repository owner or have the required connection permission.
 
-| Variable | Required | Secret? | What to enter |
-|---|---:|---:|---|
-| `DATABASE_URL` | Yes | Yes | Full MySQL/TiDB connection string for the production database. Include TLS parameters if required by the provider. |
-| `JWT_SECRET` | Yes | Yes | A new high-entropy session-signing secret. Never reuse a staging or local value. Changing it invalidates existing sessions. |
-| `VITE_APP_ID` | Yes | No | The Manus OAuth application ID for this deployment. |
-| `OAUTH_SERVER_URL` | Yes | No | The OAuth server base URL, normally the configured Manus OAuth endpoint. |
-| `VITE_OAUTH_PORTAL_URL` | Yes | No | Browser-facing OAuth login portal URL. |
-| `OWNER_OPEN_ID` | Yes | No | The owner's Manus open ID used to establish the initial owner/admin boundary. Verify this value carefully. |
-| `OWNER_NAME` | Recommended | No | Display name for owner-facing configuration and operations. |
-| `BUILT_IN_FORGE_API_URL` | Yes for AI/media | No | Server-side managed Forge API base URL. |
-| `BUILT_IN_FORGE_API_KEY` | Yes for AI/media | Yes | Server-side bearer key for managed language and image services. Never expose it as a `VITE_` variable. |
-| `VITE_FRONTEND_FORGE_API_URL` | Only if a browser feature needs it | No | Browser-safe Forge endpoint, if required by an existing client integration. Prefer server-side calls. |
-| `VITE_FRONTEND_FORGE_API_KEY` | Only if explicitly required | Yes | Browser-facing key only when the integration requires it. Treat it as public to users because Vite embeds `VITE_` values in the bundle. Do not place a privileged key here. |
-| `VITE_APP_TITLE` | Optional | No | Browser title/branding override if supported by the hosting shell. |
-| `VITE_APP_LOGO` | Optional | No | Browser logo/branding value if supported by the hosting shell. |
-| `VITE_ANALYTICS_ENDPOINT` | Optional | No | Analytics endpoint. Leave empty if analytics is not approved. |
-| `VITE_ANALYTICS_WEBSITE_ID` | Optional | No | Analytics site identifier. Leave empty if analytics is not approved. |
+### “The Vercel build failed.”
 
-The repository's older architecture notes mention future categories such as `QUEUE_*`, `AI_PROVIDER_*`, `MODEL_*`, `ENCRYPTION_*`, and `WEBHOOK_*`. Those names are planning contracts, not proof that the current web process reads them. Add them only when the corresponding provider or worker code has been implemented and reviewed. Unused variables create false confidence and make key rotation harder.
+Open the build log. Check the first error. Confirm the Install Command is `pnpm install --frozen-lockfile`, the Build Command is `pnpm build`, and the Output Directory is `dist/public`.
 
-### 5.1 First-time secret procedure
+### “The page is blank or a route gives 404.”
 
-For each secret, create a production-specific value in the secret manager. Record the secret name and owner, but never record the value in the deployment ticket. Attach a rotation date. Confirm that the value is available to the runtime, not merely to the build stage.
+Confirm that the deployment contains `vercel.json` and that its Output Directory is `dist/public`. The file also contains the rule that sends browser routes such as `/app` back to the single-page application.
 
-After saving secrets, create a new Vercel deployment rather than relying on an existing deployment to reload them. Confirm that the Function responds without printing secret values. Inspect Vercel Function logs for missing-variable errors, but redact request headers, database URLs, and provider responses before sharing logs.
+### “The website opens, but login fails.”
 
-### 5.2 Key rotation procedure
+Check the four OAuth values and the callback URL. Confirm that the callback uses your current HTTPS domain, not an old Vercel preview address.
 
-Rotate one class of key at a time and keep the change reversible:
+### “AI or image generation fails.”
 
-1. Create a replacement secret in the provider or OAuth system.
-2. Add the replacement to Vercel under the same runtime variable name, or add a versioned variable if dual-key overlap is required.
-3. Deploy a new revision.
-4. Verify login, database access, AI gateway calls, image generation, and any affected webhook or storage action.
-5. Revoke the old provider key only after the new revision is confirmed healthy.
-6. Record the rotation date and the next review date.
+Check `BUILT_IN_FORGE_API_URL` and `BUILT_IN_FORGE_API_KEY` in the Vercel environment used by the deployment. Confirm that the key is active and that the request is small enough to finish within the Function time limit.
 
-Changing `JWT_SECRET` is different. It invalidates all active application sessions. Schedule it as a deliberate security event, notify users if necessary, deploy the replacement, and verify that a fresh login creates a working session.
+### “The database is empty.”
 
-Changing `DATABASE_URL` can point the application at a different data set. Treat it as a migration event. Verify the hostname, database name, TLS mode, account permissions, and backup before deploying.
+Check `DATABASE_URL`. Then confirm that the Drizzle migrations were applied to that exact database. A correct migration against the wrong database does not help the live website.
 
-## 6. Database setup and migrations
+### “My new key did not change anything.”
 
-Create the production database before the first application deployment. Restrict the database account to the required application and migration permissions. Enable automated backups and confirm that a restore can be performed into a separate database.
+Vercel applies environment-variable changes to new deployments. Redeploy after changing a value. A deployment that was already running will not automatically receive the new value.
 
-From a controlled checkout, inspect and generate migration state:
+### “Uploads or generated files disappear.”
 
-```sh
-pnpm install --frozen-lockfile
-pnpm drizzle-kit generate
-```
+Files must live in the configured object storage. The Vercel Function filesystem is temporary. Check the storage configuration and confirm that the database contains the object reference.
 
-The command should report that the schema is synchronized when all generated migrations are already committed. If it creates a new migration, stop and review the SQL before applying it. Never blindly run a generated migration against production.
+### “A long AI task stops.”
 
-Apply migrations using the approved database release process:
+Vercel Functions are request-based and have time limits. Long tasks need a queue and a separate worker service. Do not try to keep a request open forever.
 
-```sh
-pnpm drizzle-kit migrate
-```
+## Part 13: What is not ready to turn on yet
 
-Run migrations from a controlled operator workstation or a dedicated CI/release job with the production `DATABASE_URL`; do not run migrations inside the Vercel Function handler. If you use Vercel’s build or deployment automation for migrations, ensure the command is an explicit, single-owner release step and cannot run concurrently for multiple deployments. Never put migration execution in a request path or in the Function’s module initialization.
+The current release is a strong platform foundation, but these items need separate production work before being advertised as complete:
 
-The current repository contains additive Drizzle migrations for the P/AI tables. Before a destructive schema change, take a backup, test the migration against a restored copy, define the rollback or forward-fix procedure, and deploy the application code that understands both sides of the transition where necessary.
+- A secure isolated code-execution worker.
+- Durable distributed queues for long-running work.
+- Full audio, music, and video provider adapters.
+- Payment collection and webhook reconciliation.
+- Multi-factor authentication and device management.
+- Full document retrieval and indexing.
+- A distributed rate limiter for multiple Function instances.
+- A complete backup restoration drill.
 
-## 7. Storage configuration
+Keeping these items disabled is safer than presenting a screen that looks complete but does not yet have its security and operational controls.
 
-Project file bytes and generated assets must use the configured object-storage integration. Confirm the storage bucket, region, endpoint, and access policy in the platform integration used by the project. Use a private bucket by default and serve files through authorized application or signed URLs.
+## Final checklist
 
-Set lifecycle rules for temporary objects and generated assets. Define maximum upload size, allowed MIME types, retention policy, and deletion behavior before enabling uploads for untrusted users. Keep object keys content-addressed or otherwise non-guessable. Do not place user files in `client/public`, `client/src/assets`, the repository, or a container-local directory.
+Only call the deployment complete when all of these are true:
 
-After deployment, test one small upload and one generated asset. Confirm that the database stores metadata and an object reference, not file bytes. Confirm that an unauthorized user cannot list or retrieve another user's project files.
+- [ ] GitHub is connected to the Vercel project.
+- [ ] The Production Branch is `main`.
+- [ ] The Vercel build settings match this guide.
+- [ ] All required Production environment variables are entered.
+- [ ] No real secrets are committed to GitHub.
+- [ ] The database exists and migrations are applied.
+- [ ] Database backups are enabled.
+- [ ] OAuth uses the final HTTPS domain.
+- [ ] The home page loads.
+- [ ] Sign-in and sign-out work.
+- [ ] Project creation works.
+- [ ] AI and image requests work, if their keys are enabled.
+- [ ] A small upload works.
+- [ ] API-key creation and revocation work.
+- [ ] Administrator controls reject normal users.
+- [ ] Preview uses safe test settings.
+- [ ] A rollback deployment has been identified.
+- [ ] Someone is responsible for future key rotations and backups.
 
-## 8. OAuth and domain setup
-
-Register the production callback URL in the Manus OAuth application. The callback must use the production HTTPS domain and the exact path expected by the OAuth integration. Keep staging and production OAuth applications separate when possible.
-
-Verify the following after the first deployment:
-
-1. Visiting the production root serves the P/AI application.
-2. Selecting sign-in redirects to the intended OAuth portal.
-3. The callback returns to the production domain.
-4. A session is established without mixed-domain cookie errors.
-5. Sign-out clears the session.
-6. A user without administrator role cannot access administrative procedures.
-
-If login fails, check the public application ID, OAuth server URL, portal URL, callback registration, TLS certificate, browser clock, and cookie policy. Do not paste session cookies into tickets or chat.
-
-## 9. Release procedure
-
-Use this procedure for every production release:
-
-1. Review the pull request and confirm that no `.env`, credential, private key, database dump, or generated secret is included.
-2. Confirm the target commit on `main`.
-3. Run `pnpm install --frozen-lockfile`.
-4. Run `pnpm check`.
-5. Run `pnpm test`.
-6. Run `pnpm build`.
-7. Generate migrations and review any SQL changes.
-8. Back up the database when schema or data behavior changes.
-9. Deploy the GitHub commit through Vercel.
-10. Wait for the new revision to become ready.
-11. Run smoke tests through the public domain.
-12. Monitor logs, error rates, database connections, response latency, and provider failures.
-13. Record the release commit, migration status, operator, and result.
-
-The current verification baseline is 9 passing Vitest tests, a successful TypeScript check, a successful Vite/esbuild production build, and no pending Drizzle schema changes at the time this guide was written.
-
-## 10. Smoke-test checklist
-
-Run the following checks with a browser or an approved API client. Do not use privileged keys in a shared terminal recording.
-
-| Area | Check | Expected result |
-|---|---|---|
-| Web | `GET /` | P/AI landing page loads over HTTPS |
-| Static assets | Load CSS and JavaScript from the page | No 404 or mixed-content errors |
-| Auth | Sign in and sign out | Session starts and clears correctly |
-| Projects | Create a project | Record appears only for the authenticated owner |
-| Chat | Send a short prompt | Assistant response is returned and persisted when the provider is configured |
-| Models | Open model discovery | Catalog is returned or a clear provider error is shown |
-| Image | Submit a small image prompt | Generated object is stored and rendered when image service is configured |
-| Files | Upload a small approved file | Metadata and object reference are created |
-| API keys | Create and revoke a test key | Secret is shown once and revoked key stops working |
-| Credits/jobs | Open usage screen | Balance and job state load without cross-user data |
-| Datasets | Register and approve a test dataset | Consent state changes only for the owning user |
-| Admin | Access as ordinary user | Administrative procedures return forbidden |
-| Reliability | Restart or redeploy a revision | Database-backed records remain available |
-
-## 11. Public API configuration
-
-The application exposes a versioned API surface under `/api/v1` for selected operations. API keys are created through the authenticated developer console and should be assigned the narrowest available scope. Store the plaintext secret only in the customer's password manager because it is shown once.
-
-The current chat endpoint follows this shape:
-
-```sh
-curl -X POST "https://YOUR_DOMAIN/api/v1/chat/completions" \
-  -H "Authorization: Bearer YOUR_PAI_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "MODEL_ID",
-    "messages": [
-      {"role": "user", "content": "Hello from production"}
-    ]
-  }'
-```
-
-Treat the current in-process rate limiter as a single-instance safeguard, not a distributed quota system. Before running multiple replicas or exposing the API broadly, move rate-limit state to a durable shared service and add per-user, per-key, and per-organization limits.
-
-## 12. Security controls before public launch
-
-Confirm that all production traffic uses HTTPS and that the Vercel domain has the intended TLS configuration. Use least-privilege database and storage credentials. Keep server-only values out of `VITE_` variables. Rotate the initial deployment credentials after a successful smoke test if they were used during setup.
-
-Review project ownership checks for every read and write procedure. Confirm that API-key lookup uses hashes rather than plaintext secrets. Confirm that administrative procedures are role-gated. Set upload limits and MIME policies. Enable database backups and test a restore. Set provider spending limits where available. Add alerting for authentication failures, provider errors, queue saturation, database connection exhaustion, and unusual API-key usage.
-
-Do not enable autonomous code execution merely because a UI route exists. An agent that can write or execute code requires a separate sandbox, filesystem boundary, network policy, CPU/memory/time limits, approval policy, cancellation, artifact scanning, and auditable logs.
-
-## 13. Rollback and recovery
-
-A rollback is a deployment change, not a substitute for a database restore. If the application revision fails but the schema is backward-compatible, redeploy the previous known-good GitHub commit through Vercel. Do not force-push `main`.
-
-If a migration has already changed the database, prefer a forward fix when possible. Restore only after confirming the recovery point, data-loss window, and ownership of the recovery decision. Restore into a separate environment first, verify application compatibility, and then perform the production cutover using the approved incident process.
-
-For a provider outage, disable the affected feature or provider route rather than exposing secret values or retrying indefinitely. For a leaked secret, revoke it immediately, create a replacement, deploy the replacement, invalidate affected sessions if necessary, and review access logs.
-
-## 14. Troubleshooting
-
-**The Function returns an initialization or 500 error.** Check `NODE_ENV`, `DATABASE_URL`, `JWT_SECRET`, OAuth values, and Forge values in the Vercel environment selected for that deployment. Confirm the values are available to Function execution, not only to the build. Inspect the first Function error without sharing the full environment.
-
-**The site builds but the browser shows a blank page.** Inspect the browser console and generated asset paths. Confirm that `dist/public` is the Vercel output directory, that the SPA rewrite in `vercel.json` is present, and that the deployment is using the expected commit.
-
-**OAuth redirects to the wrong place.** Check the production application ID, OAuth server URL, portal URL, callback registration, HTTPS domain, and cookie domain behavior.
-
-**Chat or image generation fails.** Confirm the server-side Forge URL and key, provider availability, model identifier, request size, Vercel Function duration, and provider network access. Do not move the privileged Forge key into a `VITE_` variable as a workaround.
-
-**A migration reports an existing table or column.** Stop the release. Compare the database migration history with `drizzle/meta` and the SQL files in `drizzle`. Do not delete migration history or manually drop tables without a backup and an approved recovery plan.
-
-**A file upload succeeds but the file cannot be opened.** Check the object-storage reference, bucket policy, signed URL or proxy behavior, MIME type, and whether the generated URL is reachable from the intended user context.
-
-**The public API returns 401 or 403.** Create a new scoped key through the developer console, send it as a Bearer token, confirm the requested scope, and revoke the old test key. Never place a key in a URL query parameter.
-
-**Multiple replicas show inconsistent rate limits or job state.** The current in-memory rate limiter is not distributed, and long-running work should not remain in the web process. Add a shared rate-limit store and durable worker architecture before scaling those features.
-
-## 15. Operational records to maintain
-
-Keep the following records outside the source repository:
-
-- Production domain, Vercel project identifier, and deployment owner.
-- Database provider, database name, backup schedule, and last restore test.
-- Secret inventory with names, owners, creation dates, and next rotation dates.
-- OAuth application owner and callback URLs.
-- Storage bucket owner, retention rules, and access policy.
-- Provider contracts, model allowlist, spend limits, and incident contacts.
-- Release commit, migration status, smoke-test result, and rollback point.
-- Security incidents, revoked keys, credential rotations, and affected users.
-
-Do not put secret values, database dumps, customer files, or session data in these records.
-
-## 16. Final production checklist
-
-Before declaring the deployment complete, verify every item below:
-
-- [ ] The Vercel project is connected to `YuhBee1/Paramount-AI` and the intended `main` commit.
-- [ ] The project uses `vercel.json`, `pnpm install --frozen-lockfile`, `pnpm build`, and output directory `dist/public`.
-- [ ] The `api/[...path].ts` Node.js Function is deployed and responds to API requests.
-- [ ] Production secrets are configured only in Vercel Project Settings → Environment Variables.
-- [ ] `DATABASE_URL` points to the intended production database.
-- [ ] Backups are enabled and a restore test has been scheduled or completed.
-- [ ] OAuth callback and login portal settings use the production domain.
-- [ ] `BUILT_IN_FORGE_API_KEY` is server-side only.
-- [ ] Storage configuration has been tested with a small file and a generated asset.
-- [ ] Drizzle migrations have been reviewed and applied exactly once.
-- [ ] `pnpm check`, `pnpm test`, and `pnpm build` pass for the release commit.
-- [ ] Auth, project ownership, API key revocation, admin denial, and provider failure paths were smoke-tested.
-- [ ] Monitoring and alerts are enabled.
-- [ ] A rollback commit and responsible operator are recorded.
-- [ ] Future-only features are not enabled or advertised as production-ready.
-
-## References
+## Official references
 
 [1]: https://vercel.com/docs/git/vercel-for-github "Deploying GitHub Projects with Vercel"
 
@@ -320,5 +363,3 @@ Before declaring the deployment complete, verify every item below:
 [3]: https://vercel.com/docs/environment-variables "Vercel environment variables"
 
 [4]: https://orm.drizzle.team/docs/kit-overview "Drizzle Kit documentation"
-
-[5]: https://pnpm.io/cli/install "pnpm install documentation"

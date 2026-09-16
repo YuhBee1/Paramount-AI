@@ -1,5 +1,7 @@
 # Deploy P/AI via GitHub to Vessel
 
+For the complete production procedure, including every supported environment variable, key rotation, database migration, storage, OAuth, smoke tests, rollback, and troubleshooting, read [`DEPLOYMENT_GUIDE.md`](./DEPLOYMENT_GUIDE.md).
+
 This repository is packaged for a Node 22 container deployment. Push the source tree to a private GitHub repository, connect that repository to Vessel, build from the included `Dockerfile`, and expose container port `3000`.
 
 Configure the production environment through Vessel secrets. At minimum provide the database connection, session secret, OAuth values, built-in Forge API URL/key, and any selected provider or webhook secrets. Never commit real values.

@@ -6,7 +6,6 @@
   "installCommand": "pnpm install --frozen-lockfile",
   "functions": {
     "api/[...path].ts": {
-      "runtime": "nodejs22.x",
       "maxDuration": 60
     }
   },

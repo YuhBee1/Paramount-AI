@@ -1,5 +1,5 @@
 import { parse as parseCookieHeader } from "cookie";
-import { COOKIE_NAME, decodeOAuthState, OAUTH_STATE_COOKIE } from "../../shared/const";
+import { COOKIE_NAME, decodeOAuthState, OAUTH_STATE_COOKIE } from "../../shared/const.js";
 
 export default async function callback(request: Request) {
   const requestUrl = new URL(request.url);
@@ -17,8 +17,8 @@ export default async function callback(request: Request) {
 
   try {
     const [{ sdk }, db] = await Promise.all([
-      import("../../server/_core/sdk"),
-      import("../../server/db"),
+      import("../../server/_core/sdk.js"),
+      import("../../server/db.js"),
     ]);
     const tokenResponse = await sdk.exchangeCodeForToken(code, state);
     const userInfo = await sdk.getUserInfo(tokenResponse.accessToken);

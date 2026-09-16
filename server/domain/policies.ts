@@ -1,4 +1,4 @@
-import type { AiRequest, ModelCapability } from "./contracts";
+import type { AiRequest, ModelCapability } from "./contracts.js";
 
 export interface RoutableModel { name: string; capabilities: ModelCapability[]; priority: number; enabled?: boolean; }
 

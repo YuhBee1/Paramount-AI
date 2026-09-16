@@ -1,5 +1,5 @@
-import { invokeLLM, listLLMModels } from "../_core/llm";
-import type { AiRequest } from "../domain/contracts";
+import { invokeLLM, listLLMModels } from "../_core/llm.js";
+import type { AiRequest } from "../domain/contracts.js";
 
 export async function availableModels() {
   const response = await listLLMModels();

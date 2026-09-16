@@ -1,6 +1,6 @@
 import { desc, eq } from "drizzle-orm";
-import { featureFlags, models, providers } from "../../drizzle/schema";
-import { getDb } from "../db";
+import { featureFlags, models, providers } from "../../drizzle/schema.js";
+import { getDb } from "../db.js";
 
 export async function listProviders() { const db = await getDb(); return db ? db.select().from(providers).orderBy(desc(providers.createdAt)) : []; }
 export async function listModels() { const db = await getDb(); return db ? db.select().from(models).orderBy(models.priority) : []; }

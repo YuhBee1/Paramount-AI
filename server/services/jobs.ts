@@ -1,6 +1,6 @@
 import { desc, and, eq } from "drizzle-orm";
-import { jobs } from "../../drizzle/schema";
-import { getDb } from "../db";
+import { jobs } from "../../drizzle/schema.js";
+import { getDb } from "../db.js";
 
 export async function listJobs(userId: number) {
   const db = await getDb();

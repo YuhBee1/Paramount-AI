@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { chooseModel, calculateCreditCharge } from "./domain/policies";
-import { appRouter } from "./routers";
-import type { TrpcContext } from "./_core/context";
+import { chooseModel, calculateCreditCharge } from "./domain/policies.js";
+import { appRouter } from "./routers.js";
+import type { TrpcContext } from "./_core/context.js";
 
 const models = [
   { name: "fast-text", capabilities: ["text" as const], priority: 20 },

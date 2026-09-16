@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
-import { apiKeys } from "../../drizzle/schema";
-import { getDb } from "../db";
+import { apiKeys } from "../../drizzle/schema.js";
+import { getDb } from "../db.js";
 
 function hashKey(value: string) { return createHash("sha256").update(value).digest("hex"); }
 export async function createApiKey(userId: number, label: string, scopes: string[]) {

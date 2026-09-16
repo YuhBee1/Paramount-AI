@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from "express";
-import { authenticateApiKey } from "./services/apiKeys";
-import { availableModels, generateText } from "./services/aiGateway";
+import { authenticateApiKey } from "./services/apiKeys.js";
+import { availableModels, generateText } from "./services/aiGateway.js";
 
 const buckets = new Map<string, { started: number; count: number }>();
 function withinRateLimit(key: string) { const now = Date.now(); const current = buckets.get(key); if (!current || now - current.started > 60_000) { buckets.set(key, { started: now, count: 1 }); return true; } current.count += 1; return current.count <= 60; }

@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
-import { fileVersions, files, projects, storageObjects } from "../../drizzle/schema";
-import { getDb } from "../db";
-import { storagePut } from "../storage";
+import { fileVersions, files, projects, storageObjects } from "../../drizzle/schema.js";
+import { getDb } from "../db.js";
+import { storagePut } from "../storage.js";
 
 export async function listProjectFiles(ownerId: number, projectId: number) {
   const db = await getDb();

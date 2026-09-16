@@ -1,6 +1,6 @@
 import { asc, desc, eq } from "drizzle-orm";
-import { conversations, messages } from "../../drizzle/schema";
-import { getDb } from "../db";
+import { conversations, messages } from "../../drizzle/schema.js";
+import { getDb } from "../db.js";
 
 export async function listConversations(userId: number) {
   const db = await getDb();

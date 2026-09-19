@@ -1,20 +1,39 @@
 import { parse as parseCookieHeader } from "cookie";
 import { COOKIE_NAME, decodeOAuthState, OAUTH_STATE_COOKIE } from "../../shared/const.js";
 
-export default async function callback(request: Request) {
-  const forwardedProtocol = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() || "https";
-  const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim() || request.headers.get("host");
-  const requestUrl = new URL(request.url, `${forwardedProtocol}://${forwardedHost || "localhost"}`);
+type VercelRequestLike = {
+  url?: string;
+  headers: Record<string, string | string[] | undefined>;
+};
+
+type VercelResponseLike = {
+  status: (code: number) => VercelResponseLike;
+  json: (body: unknown) => void;
+  setHeader: (name: string, value: string | string[]) => void;
+  redirect: (code: number, url: string) => void;
+};
+
+function header(request: VercelRequestLike, name: string) {
+  const value = request.headers[name] ?? request.headers[name.toLowerCase()];
+  return Array.isArray(value) ? value[0] : value;
+}
+
+export default async function callback(request: VercelRequestLike, response: VercelResponseLike) {
+  const forwardedProtocol = header(request, "x-forwarded-proto")?.split(",")[0]?.trim() || "https";
+  const forwardedHost = header(request, "x-forwarded-host")?.split(",")[0]?.trim() || header(request, "host") || "localhost";
+  const requestUrl = new URL(request.url || "/api/oauth/callback", `${forwardedProtocol}://${forwardedHost}`);
   const code = requestUrl.searchParams.get("code");
   const state = requestUrl.searchParams.get("state");
   if (!code || !state) {
-    return Response.json({ error: "code and state are required" }, { status: 400 });
+    response.status(400).json({ error: "code and state are required" });
+    return;
   }
 
   const { nonce, redirectUri } = decodeOAuthState(state);
-  const cookies = parseCookieHeader(request.headers.get("cookie") ?? "");
+  const cookies = parseCookieHeader(header(request, "cookie") ?? "");
   if (!nonce || nonce !== cookies[OAUTH_STATE_COOKIE]) {
-    return Response.json({ error: "invalid oauth state" }, { status: 403 });
+    response.status(403).json({ error: "invalid oauth state" });
+    return;
   }
 
   try {
@@ -25,7 +44,8 @@ export default async function callback(request: Request) {
     const tokenResponse = await sdk.exchangeCodeForToken(code, state);
     const userInfo = await sdk.getUserInfo(tokenResponse.accessToken);
     if (!userInfo.openId) {
-      return Response.json({ error: "openId missing from user info" }, { status: 400 });
+      response.status(400).json({ error: "openId missing from user info" });
+      return;
     }
 
     await db.upsertUser({
@@ -41,12 +61,13 @@ export default async function callback(request: Request) {
       expiresInMs: 365 * 24 * 60 * 60 * 1000,
     });
 
-    const headers = new Headers({ Location: redirectUri || "/" });
-    headers.append("Set-Cookie", `${OAUTH_STATE_COOKIE}=; Path=/; Max-Age=0; SameSite=None; Secure`);
-    headers.append("Set-Cookie", `${COOKIE_NAME}=${sessionToken}; Path=/; Max-Age=31536000; HttpOnly; SameSite=None; Secure`);
-    return new Response(null, { status: 302, headers });
+    response.setHeader("Set-Cookie", [
+      `${OAUTH_STATE_COOKIE}=; Path=/; Max-Age=0; SameSite=None; Secure`,
+      `${COOKIE_NAME}=${sessionToken}; Path=/; Max-Age=31536000; HttpOnly; SameSite=None; Secure`,
+    ]);
+    response.redirect(302, redirectUri || "/");
   } catch (error) {
     console.error("[OAuth] Callback failed", error);
-    return Response.json({ error: "OAuth callback failed" }, { status: 500 });
+    response.status(500).json({ error: "OAuth callback failed" });
   }
 }

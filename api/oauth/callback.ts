@@ -2,7 +2,9 @@ import { parse as parseCookieHeader } from "cookie";
 import { COOKIE_NAME, decodeOAuthState, OAUTH_STATE_COOKIE } from "../../shared/const.js";
 
 export default async function callback(request: Request) {
-  const requestUrl = new URL(request.url);
+  const forwardedProtocol = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() || "https";
+  const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim() || request.headers.get("host");
+  const requestUrl = new URL(request.url, `${forwardedProtocol}://${forwardedHost || "localhost"}`);
   const code = requestUrl.searchParams.get("code");
   const state = requestUrl.searchParams.get("state");
   if (!code || !state) {

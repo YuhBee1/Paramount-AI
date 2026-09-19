@@ -10,10 +10,17 @@ export default {
       });
     }
 
-    const incomingUrl = new URL(request.url);
     const forwardedProtocol = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
-    const protocol = forwardedProtocol || incomingUrl.protocol.replace(":", "") || "https";
-    const redirectUri = `${protocol}://${incomingUrl.host}/api/oauth/callback`;
+    const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+    const host = forwardedHost || request.headers.get("host");
+    if (!host) {
+      return new Response(JSON.stringify({ error: "OAuth host is missing" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    const protocol = forwardedProtocol || "https";
+    const redirectUri = `${protocol}://${host}/api/oauth/callback`;
     const nonce = crypto.randomUUID();
     const encodedState = btoa(JSON.stringify({ redirectUri, nonce }));
     const loginUrl = new URL(`${oauthPortalUrl.replace(/\/+$/, "")}/app-auth`);
